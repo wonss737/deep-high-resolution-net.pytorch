@@ -1,4 +1,4 @@
-# HRNET with Skeletal heatmap (CVPR 2019)
+# HRNET with Skeletal heatmap
 
 ## Introduction
 This is an pytorch implementation HRNet with skeletal heatmap. I am interested in semantic information of feature maps with each resolution in HRNet. So, I make ground truth heatmap of joints(default), skeletal, upper/lower and full body. Then, train the model while each predicted feature maps are trained with aforementioned GT heatmaps. The algorithm used to create heatmap referred to [Human Pose Estimation Using Skeletal Heatmaps
