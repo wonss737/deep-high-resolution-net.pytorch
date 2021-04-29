@@ -318,15 +318,18 @@ class PoseHighResolutionNet(nn.Module):
         self.transition3 = self._make_transition_layer(
             pre_stage_channels, num_channels)
         self.stage4, pre_stage_channels = self._make_stage(
-            self.stage4_cfg, num_channels, multi_scale_output=False)
+            self.stage4_cfg, num_channels, multi_scale_output=True)
 
-        self.final_layer = nn.Conv2d(
-            in_channels=pre_stage_channels[0],
-            out_channels=cfg['MODEL']['NUM_JOINTS'],
-            kernel_size=extra['FINAL_CONV_KERNEL'],
-            stride=1,
-            padding=1 if extra['FINAL_CONV_KERNEL'] == 3 else 0
-        )
+        self.skel_layer = self._make_upsample_layer(1, cfg, extra, pre_stage_channels)
+        self.half_layer = self._make_upsample_layer(2, cfg, extra, pre_stage_channels)
+        self.full_layer = self._make_upsample_layer(3, cfg, extra, pre_stage_channels)
+
+        channel = pre_stage_channels[0]
+        kernel = extra.FINAL_CONV_KERNEL
+        self.reduce1 = self._make_reduce_layer(channel, cfg.MODEL.NUM_JOINTS, kernel)
+        self.reduce2 = self._make_reduce_layer(channel, cfg.MODEL.NUM_SKELETON, kernel)
+        self.reduce3 = self._make_reduce_layer(channel, cfg.MODEL.NUM_HALF, kernel)
+        self.reduce4 = self._make_reduce_layer(channel, cfg.MODEL.NUM_FULL, kernel)
 
         self.pretrained_layers = extra['PRETRAINED_LAYERS']
 
@@ -370,6 +373,34 @@ class PoseHighResolutionNet(nn.Module):
                 transition_layers.append(nn.Sequential(*conv3x3s))
 
         return nn.ModuleList(transition_layers)
+
+    def _make_upsample_layer(self, s, cfg, extra, pre_stage_channels):
+        layers = []
+        for i in range(s, 0, -1):
+            block = nn.Sequential(
+                nn.Conv2d(
+                    in_channels=pre_stage_channels[i],
+                    out_channels=pre_stage_channels[i - 1],
+                    kernel_size=extra.FINAL_CONV_KERNEL,
+                    stride=1,
+                    padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0,
+                ),
+                nn.BatchNorm2d(pre_stage_channels[i - 1]),
+                nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True),
+            )
+            layers.append(block)
+
+        return nn.Sequential(*layers)
+
+    def _make_reduce_layer(self, in_channel, out_channel, kernel):
+        reduce_layer = nn.Conv2d(
+            in_channels=in_channel,
+            out_channels=out_channel,
+            kernel_size=kernel,
+            stride=1,
+            padding=1 if kernel == 3 else 0,
+        )
+        return reduce_layer
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
@@ -455,9 +486,17 @@ class PoseHighResolutionNet(nn.Module):
                 x_list.append(y_list[i])
         y_list = self.stage4(x_list)
 
-        x = self.final_layer(y_list[0])
+        x1 = y_list[0]
+        x2 = self.skel_layer(y_list[1])
+        x3 = self.half_layer(y_list[2])
+        x4 = self.full_layer(y_list[3])
 
-        return x
+        x1 = self.reduce1(x1)
+        x2 = self.reduce2(x2)
+        x3 = self.reduce3(x3)
+        x4 = self.reduce4(x4)
+
+        return [x1, x2, x3, x4]
 
     def init_weights(self, pretrained=''):
         logger.info('=> init weights from normal distribution')

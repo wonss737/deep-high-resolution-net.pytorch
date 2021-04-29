@@ -131,7 +131,6 @@ def box_to_center_scale(box, model_image_width, model_image_height):
         bottom left and top right corner of a box
     model_image_width : int
     model_image_height : int
-
     Returns
     -------
     (numpy array, numpy array)

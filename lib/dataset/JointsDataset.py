@@ -20,9 +20,28 @@ from torch.utils.data import Dataset
 from utils.transforms import get_affine_transform
 from utils.transforms import affine_transform
 from utils.transforms import fliplr_joints
-
+from scipy.ndimage import gaussian_filter
+from skimage.draw import line
 
 logger = logging.getLogger(__name__)
+skeleton = [
+    [0, 5.5, 1],
+    [5.5, 11.5, 1],
+    [5, 6, 1],
+    [5, 7, 1],
+    [6, 8, 1],
+    [7, 9, 1],
+    [8, 10, 1],
+    [11, 12, 1],
+    [11, 13, 1],
+    [12, 14, 1],
+    [13, 15, 1],
+    [14, 16, 1],
+    [7, 8, 0],
+    [9, 10, 0],
+    [13, 14, 0],
+    [15, 16, 0],
+]
 
 
 class JointsDataset(Dataset):
@@ -55,6 +74,7 @@ class JointsDataset(Dataset):
 
         self.transform = transform
         self.db = []
+        self.skeleton = skeleton
 
     def _get_db(self):
         raise NotImplementedError
@@ -119,6 +139,7 @@ class JointsDataset(Dataset):
 
         if self.data_format == 'zip':
             from utils import zipreader
+
             data_numpy = zipreader.imread(
                 image_file, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION
             )
@@ -177,10 +198,12 @@ class JointsDataset(Dataset):
         for i in range(self.num_joints):
             if joints_vis[i, 0] > 0.0:
                 joints[i, 0:2] = affine_transform(joints[i, 0:2], trans)
-
-        target, target_weight = self.generate_target(joints, joints_vis)
+        target, skeletal, half, full, target_weight = self.generate_target(joints, joints_vis)
 
         target = torch.from_numpy(target)
+        skeletal = torch.from_numpy(skeletal)
+        half = torch.from_numpy(half)
+        full = torch.from_numpy(full)
         target_weight = torch.from_numpy(target_weight)
 
         meta = {
@@ -195,7 +218,7 @@ class JointsDataset(Dataset):
             'score': score
         }
 
-        return input, target, target_weight, meta
+        return input, target, skeletal, half, full, target_weight, meta
 
     def select_data(self, db):
         db_selected = []
@@ -236,8 +259,11 @@ class JointsDataset(Dataset):
         :param joints_vis: [num_joints, 3]
         :return: target, target_weight(1: visible, 0: invisible)
         '''
-        target_weight = np.ones((self.num_joints, 1), dtype=np.float32)
-        target_weight[:, 0] = joints_vis[:, 0]
+        target_weight = np.ones(
+            (self.num_joints + len(self.skeleton) + 3, 1), dtype=np.float32
+        )
+        target_weight = np.ones((36, 1), dtype=np.float32)
+        target_weight[: self.num_joints, 0] = joints_vis[:, 0]
 
         assert self.target_type == 'gaussian', \
             'Only support gaussian map now!'
@@ -247,10 +273,18 @@ class JointsDataset(Dataset):
                                self.heatmap_size[1],
                                self.heatmap_size[0]),
                               dtype=np.float32)
+            skeletal = np.zeros(
+                (len(self.skeleton), self.heatmap_size[1], self.heatmap_size[0]),
+                dtype=np.float32,
+            )
+            half = np.zeros(
+                (2, self.heatmap_size[1], self.heatmap_size[0]), dtype=np.float32,
+            )
 
             tmp_size = self.sigma * 3
 
             for joint_id in range(self.num_joints):
+
                 feat_stride = self.image_size / self.heatmap_size
                 mu_x = int(joints[joint_id][0] / feat_stride[0] + 0.5)
                 mu_y = int(joints[joint_id][1] / feat_stride[1] + 0.5)
@@ -283,7 +317,112 @@ class JointsDataset(Dataset):
                     target[joint_id][img_y[0]:img_y[1], img_x[0]:img_x[1]] = \
                         g[g_y[0]:g_y[1], g_x[0]:g_x[1]]
 
+            for skeleton_id in range(len(self.skeleton)):
+                feat_stride = self.image_size / self.heatmap_size
+
+                if skeleton_id == 0:
+                    cnt1 = 0
+                    mu_x1 = 0
+                    mu_y1 = 0
+                    for joint_id in [0, 1, 2, 3, 4]:
+                        if joints_vis[joint_id, 0] > 0.5:
+                            mu_x1 += joints[joint_id][0]
+                            mu_y1 += joints[joint_id][1]
+                            cnt1 += 1
+
+                    cnt2 = 0
+                    mu_x2 = 0
+                    mu_y2 = 0
+                    for joint_id in [5, 6]:
+                        if joints_vis[joint_id, 0] > 0.5:
+                            mu_x2 += joints[joint_id][0]
+                            mu_y2 += joints[joint_id][1]
+                            cnt2 += 1
+
+                    if cnt1 == 0 or cnt2 == 0:
+                        target_weight[17 + skeleton_id] = 0
+                        continue
+
+                    mu_x1 = int((mu_x1 / cnt1) / feat_stride[0] + 0.5)
+                    mu_y1 = int((mu_y1 / cnt1) / feat_stride[1] + 0.5)
+                    mu_x2 = int((mu_x2 / cnt2) / feat_stride[0] + 0.5)
+                    mu_y2 = int((mu_y2 / cnt2) / feat_stride[1] + 0.5)
+
+                elif skeleton_id == 1:
+                    cnt1 = 0
+                    mu_x1 = 0
+                    mu_y1 = 0
+                    for joint_id in [5, 6]:
+                        if joints_vis[joint_id, 0] > 0.5:
+                            mu_x1 += joints[joint_id][0]
+                            mu_y1 += joints[joint_id][1]
+                            cnt1 += 1
+
+                    cnt2 = 0
+                    mu_x2 = 0
+                    mu_y2 = 0
+                    for joint_id in [11, 12]:
+                        if joints_vis[joint_id, 0] > 0.5:
+                            mu_x2 += joints[joint_id][0]
+                            mu_y2 += joints[joint_id][1]
+                            cnt2 += 1
+
+                    if cnt1 == 0 or cnt2 == 0:
+                        target_weight[17 + skeleton_id] = 0
+                        continue
+
+                    mu_x1 = int((mu_x1 / cnt1) / feat_stride[0] + 0.5)
+                    mu_y1 = int((mu_y1 / cnt1) / feat_stride[1] + 0.5)
+                    mu_x2 = int((mu_x2 / cnt2) / feat_stride[0] + 0.5)
+                    mu_y2 = int((mu_y2 / cnt2) / feat_stride[1] + 0.5)
+
+                else:
+                    joint_id1 = self.skeleton[skeleton_id][0]
+                    joint_id2 = self.skeleton[skeleton_id][1]
+
+                    if joints_vis[joint_id1, 0] < 0.5 or joints_vis[joint_id2, 0] < 0.5:
+                        target_weight[17 + skeleton_id] = 0
+                        continue
+
+                    mu_x1 = int(joints[joint_id1][0] / feat_stride[0] + 0.5)
+                    mu_y1 = int(joints[joint_id1][1] / feat_stride[1] + 0.5)
+                    mu_x2 = int(joints[joint_id2][0] / feat_stride[0] + 0.5)
+                    mu_y2 = int(joints[joint_id2][1] / feat_stride[1] + 0.5)
+
+                heatmap = [self.heatmap_size[0] - 1, self.heatmap_size[1] - 1]
+                pnt1 = np.clip(np.array([mu_x1, mu_y1]), [0, 0], heatmap)
+                pnt2 = np.clip(np.array([mu_x2, mu_y2]), [0, 0], heatmap)
+
+                # make connected skeletal heatmap
+                if self.skeleton[skeleton_id][-1] == 1:
+                    rr, cc = line(pnt1[1], pnt1[0], pnt2[1], pnt2[0])
+                    skeletal[skeleton_id][rr, cc] = 1
+                    skeletal[skeleton_id] = gaussian_filter(
+                        skeletal[skeleton_id], sigma=2.796
+                    )
+                    skeletal[skeleton_id] = skeletal[skeleton_id] * (
+                        1 / np.max(skeletal[skeleton_id])
+                    )
+                # make symmetric skeletal heatmap
+                else:
+                    skeletal[skeleton_id][pnt1[1], pnt1[0]] = 1
+                    skeletal[skeleton_id][pnt2[1], pnt2[0]] = 1
+                    skeletal[skeleton_id] = gaussian_filter(
+                        skeletal[skeleton_id], sigma=2.796
+                    )
+                    skeletal[skeleton_id] = skeletal[skeleton_id] * (
+                        1 / np.max(skeletal[skeleton_id])
+                    )
+
+            half[0, :, :] = np.sum(skeletal[0:7, :, :], axis=0)
+            target_weight[33] = np.max(target_weight[17:24])
+            half[1, :, :] = np.sum(skeletal[7:12, :, :], axis=0)
+            target_weight[34] = np.max(target_weight[24:29])
+            full = np.expand_dims(np.sum(half, axis=0), axis=0)
+            target_weight[35] = np.max(target_weight[0:35])
+
         if self.use_different_joints_weight:
             target_weight = np.multiply(target_weight, self.joints_weight)
 
-        return target, target_weight
+        return target, skeletal, half, full, target_weight
+
