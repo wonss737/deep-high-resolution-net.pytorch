@@ -19,10 +19,12 @@ This is an pytorch implementation HRNet with skeletal heatmap. I am interested i
 
 ### Visualization
 
-#### Visualizing ground truth on COCO training
+#### Visualizing results on COCO training
+Keypoint Heatmap</br>
+<img src="figures/example/1_keypoint.png" height="80" width="1072"></br>
 Skeletal Heatmap</br>
-<img src="figures/example/2_skeletal.jpg" height="215"></br>
-Upper/Lower body Heatmap</br>
-<img src="figures/example/3_upper&lower.jpg" height="450"></br>
+<img src="figures/example/2_skeletal.png" height="80" width="1024"></br>
+Half body Heatmap</br>
+<img src="figures/example/3_half.png" height="60" width="138"></br>
 Full body Heatmap</br>
-<img src="figures/example/4_full.jpg" height="450">
+<img src="figures/example/4_full.png" height="60" width="100">

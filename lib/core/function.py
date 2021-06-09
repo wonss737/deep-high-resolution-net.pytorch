@@ -215,7 +215,7 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
                     os.path.join(output_dir, 'val'), i
                 )
                 save_debug_images(config,input,meta,target,skeletal,half,full,
-                                  pred * 4,outputs,prefix)
+                                  pred * 4,outputs, prefix)
 
         name_values, perf_indicator = val_dataset.evaluate(
             config, all_preds, output_dir, all_boxes, image_path,
