@@ -14,7 +14,6 @@ This is an pytorch implementation HRNet with skeletal heatmap. I am interested i
 ### Note:
 - Flip test is used.
 - Person detector has person AP of 56.4 on COCO val2017 dataset.
-- pose_resnet_[50,101,152] is our previous work of [*Simple Baselines for Human Pose Estimation and Tracking*](http://openaccess.thecvf.com/content_ECCV_2018/html/Bin_Xiao_Simple_Baselines_for_ECCV_2018_paper.html).
 - GFLOPs is for convolution and linear layers only.
 
 ### Visualization
